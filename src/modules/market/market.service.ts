@@ -165,7 +165,39 @@ export class MarketService {
 
   // ============ Background Jobs ============
 
-  @Cron(CronExpression.EVERY_MINUTE)
+  /**
+   * Cleanup old candles from database to prevent disk space issues
+   * Runs daily at 3 AM
+   */
+  @Cron('0 3 * * *')
+  async cleanupOldCandles() {
+    this.logger.log('Running candle cleanup job...');
+
+    try {
+      const retentionDays = 90; // Keep 90 days of data
+      const cutoffDate = new Date();
+      cutoffDate.setDate(cutoffDate.getDate() - retentionDays);
+
+      const result = await this.candleRepo
+        .createQueryBuilder()
+        .delete()
+        .from(CandleEntity)
+        .where('time < :cutoffDate', { cutoffDate })
+        .execute();
+
+      this.logger.log(
+        `Cleaned up ${result.affected} candles older than ${retentionDays} days`,
+      );
+    } catch (error) {
+      this.logger.error(`Candle cleanup error: ${error.message}`);
+    }
+  }
+
+  /**
+   * Sync market data for top symbols
+   * Runs every hour at minute 1 (to ensure we get closed candles)
+   */
+  @Cron('1 * * * *')
   async syncMarketData() {
     this.logger.debug('Running market data sync job...');
 
@@ -187,6 +219,42 @@ export class MarketService {
 
   // ============ Helper Methods ============
 
+  /**
+   * Store a single candle in database (called from WebSocket)
+   * Public method to be used by BinanceWebsocketService
+   */
+  async storeSingleCandleInDB(
+    symbol: string,
+    interval: string,
+    candle: any,
+  ): Promise<void> {
+    try {
+      const entity = {
+        symbol,
+        interval,
+        time: new Date(candle.time),
+        open: candle.open,
+        high: candle.high,
+        low: candle.low,
+        close: candle.close,
+        volume: candle.volume,
+      };
+
+      // Insert with conflict handling (update if exists)
+      await this.candleRepo
+        .createQueryBuilder()
+        .insert()
+        .into(CandleEntity)
+        .values(entity)
+        .orIgnore()
+        .execute();
+    } catch (error) {
+      this.logger.error(
+        `Error storing single candle for ${symbol}:${interval}: ${error.message}`,
+      );
+    }
+  }
+
   private async storeCandlesInDB(
     symbol: string,
     interval: string,
@@ -201,6 +269,7 @@ export class MarketService {
         high: c.high,
         low: c.low,
         close: c.close,
+        volume: c.volume,
       }));
 
       // Bulk insert with conflict handling

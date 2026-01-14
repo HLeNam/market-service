@@ -1,6 +1,13 @@
-import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  OnModuleDestroy,
+  Inject,
+  forwardRef,
+} from '@nestjs/common';
 import WebSocket from 'ws';
 import { CacheService } from '../cache/cache.service';
+import { MarketService } from '../market/market.service';
 
 interface SubscriptionCallback {
   onCandle?: (data: any) => void;
@@ -18,7 +25,11 @@ export class BinanceWebsocketService implements OnModuleDestroy {
   // Map: symbol -> Set of client IDs subscribed
   private subscriptions = new Map<string, Map<string, SubscriptionCallback>>();
 
-  constructor(private readonly cacheService: CacheService) {}
+  constructor(
+    private readonly cacheService: CacheService,
+    @Inject(forwardRef(() => MarketService))
+    private readonly marketService: MarketService,
+  ) {}
 
   onModuleDestroy() {
     // Cleanup all connections
@@ -110,14 +121,24 @@ export class BinanceWebsocketService implements OnModuleDestroy {
 
             callback.onCandle(candleData);
 
-            // Store final candles in cache for historical data
+            // Store final candles in cache and database for historical data
             if (k.x) {
               const [symbol, interval] = key.split(':');
+              const symbolUpper = symbol.toUpperCase();
+
+              // Store in Redis cache
               this.cacheService
-                .addSingleCandle(symbol.toUpperCase(), interval, candleData)
+                .addSingleCandle(symbolUpper, interval, candleData)
+                .catch((err) =>
+                  this.logger.error(`Failed to cache candle: ${err.message}`),
+                );
+
+              // Store in database for long-term analysis
+              this.marketService
+                .storeSingleCandleInDB(symbolUpper, interval, candleData)
                 .catch((err) =>
                   this.logger.error(
-                    `Failed to cache candle: ${err.message}`,
+                    `Failed to store candle in DB: ${err.message}`,
                   ),
                 );
             }
