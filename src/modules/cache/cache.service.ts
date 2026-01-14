@@ -134,6 +134,39 @@ export class CacheService implements OnModuleDestroy {
   }
 
   /**
+   * Add or update a single candle to the sorted set
+   * Only store final candles to avoid duplicates
+   */
+  async addSingleCandle(
+    symbol: string,
+    interval: string,
+    candle: any,
+    maxCandles: number = 1000,
+  ): Promise<void> {
+    try {
+      const key = `candles:${symbol}:${interval}`;
+      const pipeline = this.redis.pipeline();
+
+      // Add candle to sorted set (will update if timestamp exists)
+      pipeline.zadd(key, candle.time, JSON.stringify(candle));
+
+      // Keep only the latest N candles (remove old ones)
+      // Keep maxCandles + 100 to avoid too frequent trimming
+      const trimThreshold = maxCandles + 100;
+      pipeline.zremrangebyrank(key, 0, -(trimThreshold + 1));
+
+      // Refresh expiry
+      pipeline.expire(key, 3600); // 1 hour
+
+      await pipeline.exec();
+    } catch (error) {
+      this.logger.error(
+        `Error adding single candle for ${symbol}:${interval}: ${error.message}`,
+      );
+    }
+  }
+
+  /**
    * Publish message to channel (for pub/sub)
    */
   async publish(channel: string, message: string): Promise<void> {

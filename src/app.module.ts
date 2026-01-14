@@ -10,6 +10,8 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { CacheModule } from './modules/cache/cache.module';
 import { HealthModule } from './health/health/health.module';
+import { BinanceModule } from './modules/binance/binance.module';
+import { MarketModule } from './modules/market/market.module';
 
 @Module({
   imports: [
@@ -40,6 +42,10 @@ import { HealthModule } from './health/health/health.module';
     CacheModule,
 
     HealthModule,
+
+    BinanceModule,
+
+    MarketModule,
   ],
   controllers: [AppController],
   providers: [AppService],
