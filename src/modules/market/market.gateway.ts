@@ -26,7 +26,7 @@ export class MarketGateway implements OnGatewayConnection, OnGatewayDisconnect {
   server: Server;
 
   private readonly logger = new Logger(MarketGateway.name);
-  private clientSubscriptions = new Map<string, Set<string>>(); // clientId -> Set of symbols
+  private clientSubscriptions = new Map<string, Map<string, string>>(); // clientId -> Map<symbol, interval>
 
   constructor(
     private readonly binanceWs: BinanceWebsocketService,
@@ -35,7 +35,7 @@ export class MarketGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   async handleConnection(client: Socket) {
     this.logger.log(`Client connected: ${client.id}`);
-    this.clientSubscriptions.set(client.id, new Set());
+    this.clientSubscriptions.set(client.id, new Map());
 
     // Send connection confirmation
     client.emit('connected', {
@@ -50,8 +50,8 @@ export class MarketGateway implements OnGatewayConnection, OnGatewayDisconnect {
     // Cleanup subscriptions
     const subscriptions = this.clientSubscriptions.get(client.id);
     if (subscriptions) {
-      for (const symbol of subscriptions) {
-        await this.binanceWs.unsubscribe(symbol, client.id);
+      for (const [symbol, interval] of subscriptions.entries()) {
+        await this.binanceWs.unsubscribe(symbol, client.id, interval);
       }
       this.clientSubscriptions.delete(client.id);
     }
@@ -65,14 +65,26 @@ export class MarketGateway implements OnGatewayConnection, OnGatewayDisconnect {
     const { symbol, interval } = data;
 
     try {
-      // Add to client's subscription list
       const subscriptions = this.clientSubscriptions.get(client.id);
-      subscriptions?.add(symbol);
 
-      // Subscribe to Binance WebSocket
+      // Check if client already has a subscription for this symbol
+      const existingInterval = subscriptions?.get(symbol);
+      if (existingInterval && existingInterval !== interval) {
+        // Unsubscribe from the old interval first
+        this.logger.log(
+          `Client ${client.id} switching ${symbol} from ${existingInterval} to ${interval}`,
+        );
+        await this.binanceWs.unsubscribe(symbol, client.id, existingInterval);
+      }
+
+      // Add/update client's subscription list
+      subscriptions?.set(symbol, interval);
+
+      // Subscribe to Binance WebSocket with client.id as clientId
       await this.binanceWs.subscribe(
         symbol,
         interval,
+        client.id,
         (candle) => {
           // Emit candle update to this specific client
           client.emit('candle-update', {
@@ -123,11 +135,14 @@ export class MarketGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
     try {
       const subscriptions = this.clientSubscriptions.get(client.id);
+      const interval = subscriptions?.get(symbol);
       subscriptions?.delete(symbol);
 
-      await this.binanceWs.unsubscribe(symbol, client.id);
+      await this.binanceWs.unsubscribe(symbol, client.id, interval);
 
-      this.logger.log(`Client ${client.id} unsubscribed from ${symbol}`);
+      this.logger.log(
+        `Client ${client.id} unsubscribed from ${symbol}${interval ? `/${interval}` : ''}`,
+      );
     } catch (error) {
       this.logger.error(`Unsubscription error: ${error.message}`);
     }

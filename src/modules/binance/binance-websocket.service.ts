@@ -115,10 +115,10 @@ export class BinanceWebsocketService implements OnModuleDestroy {
   async subscribe(
     symbol: string,
     interval: string,
+    clientId: string,
     onCandle: (data: any) => void,
     onTicker?: (data: any) => void,
-  ): Promise<string> {
-    const clientId = this.generateClientId();
+  ): Promise<void> {
     const key = `${symbol}:${interval}`;
 
     // Add callback to subscriptions
@@ -131,13 +131,21 @@ export class BinanceWebsocketService implements OnModuleDestroy {
     if (!this.connections.has(key)) {
       await this.createConnection(symbol, interval, key);
     }
-
-    return clientId;
   }
 
-  async unsubscribe(symbol: string, clientId: string): Promise<void> {
+  async unsubscribe(
+    symbol: string,
+    clientId: string,
+    interval?: string,
+  ): Promise<void> {
     this.subscriptions.forEach((clients, key) => {
-      if (key.startsWith(symbol)) {
+      // If interval is specified, only unsubscribe from that specific symbol:interval
+      // Otherwise, unsubscribe from all subscriptions for this symbol
+      const shouldUnsubscribe = interval
+        ? key === `${symbol}:${interval}`
+        : key.startsWith(`${symbol}:`);
+
+      if (shouldUnsubscribe) {
         clients.delete(clientId);
 
         // Close connection if no more subscribers
