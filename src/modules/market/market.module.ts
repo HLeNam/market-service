@@ -6,6 +6,8 @@ import { MarketService } from './market.service';
 import { MarketController } from './market.controller';
 import { BinanceModule } from 'src/modules/binance/binance.module';
 import { CacheModule } from 'src/modules/cache/cache.module';
+import { MarketGateway } from 'src/modules/market/market.gateway';
+import { CandleStorageProcessor } from './processors/candle-storage.processor';
 
 @Module({
   imports: [
@@ -25,7 +27,7 @@ import { CacheModule } from 'src/modules/cache/cache.module';
     forwardRef(() => BinanceModule),
     CacheModule,
   ],
-  providers: [MarketService],
+  providers: [MarketService, MarketGateway, CandleStorageProcessor],
   controllers: [MarketController],
   exports: [MarketService],
 })
