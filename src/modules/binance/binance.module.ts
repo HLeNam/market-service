@@ -1,6 +1,9 @@
+import { Module, forwardRef } from '@nestjs/common';
 import { HttpModule } from '@nestjs/axios';
-import { Module } from '@nestjs/common';
-import { BinanceService } from 'src/modules/binance/binance.service';
+import { BinanceService } from './binance.service';
+import { BinanceWebsocketService } from './binance-websocket.service';
+import { CacheModule } from '../cache/cache.module';
+import { MarketModule } from '../market/market.module';
 
 @Module({
   imports: [
@@ -8,8 +11,10 @@ import { BinanceService } from 'src/modules/binance/binance.service';
       timeout: 10000,
       maxRedirects: 5,
     }),
+    CacheModule,
+    forwardRef(() => MarketModule),
   ],
-  providers: [BinanceService],
-  exports: [BinanceService],
+  providers: [BinanceService, BinanceWebsocketService],
+  exports: [BinanceService, BinanceWebsocketService],
 })
 export class BinanceModule {}
