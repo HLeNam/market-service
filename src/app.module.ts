@@ -11,6 +11,7 @@ import { ThrottlerModule } from '@nestjs/throttler';
 import { CacheModule } from './modules/cache/cache.module';
 import { HealthModule } from './health/health/health.module';
 import { BinanceModule } from './modules/binance/binance.module';
+import { MarketModule } from './modules/market/market.module';
 
 @Module({
   imports: [
@@ -43,6 +44,8 @@ import { BinanceModule } from './modules/binance/binance.module';
     HealthModule,
 
     BinanceModule,
+
+    MarketModule,
   ],
   controllers: [AppController],
   providers: [AppService],
