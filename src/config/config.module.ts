@@ -41,6 +41,13 @@ import * as Joi from 'joi';
           .default('https://api.binance.com/api/v3'),
         BINANCE_WS_URL: Joi.string().default('wss://stream.binance.com:9443'),
 
+        // Binance WebSocket Configuration
+        WS_MAX_RETRY_ATTEMPTS: Joi.number().default(10),
+        WS_INITIAL_RETRY_DELAY: Joi.number().default(1000),
+        WS_MAX_RETRY_DELAY: Joi.number().default(60000),
+        WS_PING_INTERVAL: Joi.number().default(30000),
+        WS_PONG_TIMEOUT: Joi.number().default(10000),
+
         // Rate Limiting
         THROTTLE_TTL: Joi.number().default(60000),
         THROTTLE_LIMIT: Joi.number().default(100),

@@ -27,7 +27,7 @@ interface ConnectionState {
 @Injectable()
 export class BinanceWebsocketService implements OnModuleDestroy {
   private readonly logger = new Logger(BinanceWebsocketService.name);
-  private readonly wsBase = 'wss://stream.binance.com:9443';
+  private readonly wsBase: string;
   private readonly quoteAssets: string[];
 
   // Connection management
@@ -35,11 +35,11 @@ export class BinanceWebsocketService implements OnModuleDestroy {
   private subscriptions = new Map<string, Map<string, SubscriptionCallback>>();
 
   // Configuration
-  private readonly MAX_RETRY_ATTEMPTS = 10;
-  private readonly INITIAL_RETRY_DELAY = 1000; // 1 second
-  private readonly MAX_RETRY_DELAY = 60000; // 1 minute
-  private readonly PING_INTERVAL = 30000; // 30 seconds
-  private readonly PONG_TIMEOUT = 10000; // 10 seconds
+  private readonly MAX_RETRY_ATTEMPTS: number;
+  private readonly INITIAL_RETRY_DELAY: number;
+  private readonly MAX_RETRY_DELAY: number;
+  private readonly PING_INTERVAL: number;
+  private readonly PONG_TIMEOUT: number;
 
   constructor(
     private readonly cacheService: CacheService,
@@ -47,6 +47,23 @@ export class BinanceWebsocketService implements OnModuleDestroy {
     private readonly marketService: MarketService,
     private readonly configService: ConfigService,
   ) {
+    // Initialize WebSocket base URL
+    this.wsBase =
+      this.configService.get<string>('BINANCE_WS_URL') ||
+      'wss://stream.binance.com:9443';
+
+    // Initialize WebSocket configuration
+    this.MAX_RETRY_ATTEMPTS =
+      this.configService.get<number>('WS_MAX_RETRY_ATTEMPTS') || 10;
+    this.INITIAL_RETRY_DELAY =
+      this.configService.get<number>('WS_INITIAL_RETRY_DELAY') || 1000;
+    this.MAX_RETRY_DELAY =
+      this.configService.get<number>('WS_MAX_RETRY_DELAY') || 60000;
+    this.PING_INTERVAL =
+      this.configService.get<number>('WS_PING_INTERVAL') || 30000;
+    this.PONG_TIMEOUT =
+      this.configService.get<number>('WS_PONG_TIMEOUT') || 10000;
+
     // Parse quote assets from ENV (default to USDT for backward compatibility)
     const quoteAssetsConfig =
       this.configService.get<string>('QUOTE_ASSETS') || 'USDT';
