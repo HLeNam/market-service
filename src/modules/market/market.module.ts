@@ -1,24 +1,33 @@
 import { BullModule } from '@nestjs/bull';
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { CandleEntity } from 'src/modules/market/entities/candle.entity';
-import { TickerEntity } from 'src/modules/market/entities/ticker.entity';
 import { MarketService } from './market.service';
 import { MarketController } from './market.controller';
 import { BinanceModule } from 'src/modules/binance/binance.module';
 import { CacheModule } from 'src/modules/cache/cache.module';
 import { MarketGateway } from 'src/modules/market/market.gateway';
+import { CandleStorageProcessor } from './processors/candle-storage.processor';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([CandleEntity, TickerEntity]),
+    TypeOrmModule.forFeature([CandleEntity]),
     BullModule.registerQueue({
-      name: 'market-data',
+      name: 'candle-storage',
+      defaultJobOptions: {
+        attempts: 3,
+        backoff: {
+          type: 'exponential',
+          delay: 1000,
+        },
+        removeOnComplete: true,
+        removeOnFail: false,
+      },
     }),
-    BinanceModule,
+    forwardRef(() => BinanceModule),
     CacheModule,
   ],
-  providers: [MarketService, MarketGateway],
+  providers: [MarketService, MarketGateway, CandleStorageProcessor],
   controllers: [MarketController],
   exports: [MarketService],
 })

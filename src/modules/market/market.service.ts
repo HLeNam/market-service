@@ -3,10 +3,9 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { InjectQueue } from '@nestjs/bull';
 import { type Queue } from 'bull';
-import { Cron, CronExpression } from '@nestjs/schedule';
+import { Cron } from '@nestjs/schedule';
 
 import { CandleEntity } from './entities/candle.entity';
-import { TickerEntity } from './entities/ticker.entity';
 import { BinanceService } from '../binance/binance.service';
 import { CacheService } from '../cache/cache.service';
 
@@ -17,10 +16,8 @@ export class MarketService {
   constructor(
     @InjectRepository(CandleEntity)
     private candleRepo: Repository<CandleEntity>,
-    @InjectRepository(TickerEntity)
-    private tickerRepo: Repository<TickerEntity>,
-    @InjectQueue('market-data')
-    private marketDataQueue: Queue,
+    @InjectQueue('candle-storage')
+    private readonly candleStorageQueue: Queue,
     private readonly binanceService: BinanceService,
     private readonly cacheService: CacheService,
     // private readonly newsClient: NewsClientService,
@@ -193,31 +190,30 @@ export class MarketService {
     }
   }
 
+  // ============ Helper Methods ============
+
   /**
-   * Sync market data for top symbols
-   * Runs every hour at minute 1 (to ensure we get closed candles)
+   * Store final candle from WebSocket (called by BinanceWebsocketService)
+   * Adds job to queue for non-blocking storage with retry
    */
-  @Cron('1 * * * *')
-  async syncMarketData() {
-    this.logger.debug('Running market data sync job...');
-
+  async storeFinalCandle(
+    symbol: string,
+    interval: string,
+    candle: any,
+  ): Promise<void> {
     try {
-      const symbols = await this.getSymbols();
-      const topSymbols = symbols.slice(0, 50); // Top 50 symbols
-
-      // Add jobs to queue for processing
-      for (const symbol of topSymbols) {
-        await this.marketDataQueue.add('sync-candles', {
-          symbol,
-          interval: '1h',
-        });
-      }
+      await this.candleStorageQueue.add('store-candle', {
+        symbol,
+        interval,
+        candle,
+      });
     } catch (error) {
-      this.logger.error(`Market data sync error: ${error.message}`);
+      this.logger.error(
+        `Failed to queue candle storage for ${symbol}:${interval}: ${error.message}`,
+      );
+      throw error;
     }
   }
-
-  // ============ Helper Methods ============
 
   /**
    * Store a single candle in database (called from WebSocket)
@@ -252,6 +248,54 @@ export class MarketService {
       this.logger.error(
         `Error storing single candle for ${symbol}:${interval}: ${error.message}`,
       );
+    }
+  }
+
+  /**
+   * Query candles from database for AI analysis
+   * This queries directly from DB, not cache, to get historical data
+   */
+  async getCandlesFromDB(
+    symbol: string,
+    interval: string,
+    from?: Date,
+    to?: Date,
+    limit: number = 1000,
+  ): Promise<any[]> {
+    try {
+      const query = this.candleRepo
+        .createQueryBuilder('candle')
+        .where('candle.symbol = :symbol', { symbol })
+        .andWhere('candle.interval = :interval', { interval })
+        .orderBy('candle.time', 'DESC')
+        .take(limit);
+
+      // Add date range filters if provided
+      if (from) {
+        query.andWhere('candle.time >= :from', { from });
+      }
+      if (to) {
+        query.andWhere('candle.time <= :to', { to });
+      }
+
+      const results = await query.getMany();
+
+      // Convert to API format and reverse to chronological order
+      return results
+        .map((c) => ({
+          time: c.time.getTime(),
+          open: parseFloat(c.open.toString()),
+          high: parseFloat(c.high.toString()),
+          low: parseFloat(c.low.toString()),
+          close: parseFloat(c.close.toString()),
+          volume: c.volume ? parseFloat(c.volume.toString()) : undefined,
+        }))
+        .reverse();
+    } catch (error) {
+      this.logger.error(
+        `Error querying candles from DB for ${symbol}:${interval}: ${error.message}`,
+      );
+      return [];
     }
   }
 

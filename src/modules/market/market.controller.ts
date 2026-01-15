@@ -86,6 +86,69 @@ export class MarketController {
     };
   }
 
+  @Get('candles/:symbol/history')
+  @ApiOperation({
+    summary: 'Get historical candles from database for AI analysis',
+    description:
+      'Query candles directly from database with date range filtering. This endpoint is optimized for AI services that need historical data for trend analysis.',
+  })
+  @ApiQuery({
+    name: 'interval',
+    required: false,
+    example: '1h',
+    description: 'Candle interval (1m, 5m, 15m, 1h, 4h, 1d)',
+  })
+  @ApiQuery({
+    name: 'from',
+    required: false,
+    example: '2024-01-01',
+    description: 'Start date (YYYY-MM-DD or ISO 8601 format)',
+  })
+  @ApiQuery({
+    name: 'to',
+    required: false,
+    example: '2024-01-31',
+    description: 'End date (YYYY-MM-DD or ISO 8601 format)',
+  })
+  @ApiQuery({
+    name: 'limit',
+    required: false,
+    example: 1000,
+    description: 'Maximum number of candles to return',
+  })
+  @HttpCode(HttpStatus.OK)
+  async getCandlesHistory(
+    @Param('symbol') symbol: string,
+    @Query('interval') interval: string = '1h',
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('limit') limit: number = 1000,
+  ) {
+    const fromDate = from ? new Date(from) : undefined;
+    const toDate = to ? new Date(to) : undefined;
+
+    const candles = await this.marketService.getCandlesFromDB(
+      symbol,
+      interval,
+      fromDate,
+      toDate,
+      limit,
+    );
+
+    return {
+      success: true,
+      data: candles,
+      count: candles.length,
+      query: {
+        symbol,
+        interval,
+        from: fromDate?.toISOString(),
+        to: toDate?.toISOString(),
+        limit,
+      },
+    };
+  }
+
   //   @Get('overview/:symbol')
   //   @ApiOperation({ summary: 'Get market overview with news' })
   //   @ApiQuery({ name: 'interval', required: false, example: '1h' })
@@ -124,19 +187,19 @@ export class MarketController {
   //   }
 
   @Get('icon/:symbol')
+  @ApiOperation({ summary: 'Get coin icon/logo' })
   async getIcon(@Param('symbol') symbol: string, @Res() res: Response) {
     try {
       const { buffer, contentType } =
         await this.binanceService.fetchIcon(symbol);
 
-      // Set header để trình duyệt hiểu đây là ảnh
+      // Set cache headers for 30 days (icons rarely change)
       res.set('Content-Type', contentType);
-      res.set('Cache-Control', 'public, max-age=86400'); // Cache 1 ngày để giảm tải server
+      res.set('Cache-Control', 'public, max-age=2592000, immutable'); // 30 days
+      res.set('ETag', `"${symbol.replace('USDT', '').toUpperCase()}"`);
 
-      // Gửi dữ liệu ảnh
       res.send(buffer);
     } catch (error) {
-      // Nếu lỗi, có thể trả về 1 ảnh placeholder mặc định
       res.status(HttpStatus.NOT_FOUND).send('Icon not found');
     }
   }

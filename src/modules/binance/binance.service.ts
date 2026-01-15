@@ -2,11 +2,15 @@ import { HttpService } from '@nestjs/axios';
 import { HttpException, HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { catchError, firstValueFrom, map } from 'rxjs';
+import { promises as fs } from 'fs';
+import { join } from 'path';
 
 @Injectable()
 export class BinanceService {
   private readonly logger = new Logger(BinanceService.name);
   private readonly baseUrl: string;
+  private readonly iconsDir: string;
+  private readonly quoteAssets: string[];
 
   constructor(
     private readonly httpService: HttpService,
@@ -15,6 +19,42 @@ export class BinanceService {
     this.baseUrl =
       this.configService.get<string>('BINANCE_API_URL') ||
       'https://api.binance.com/api/v3';
+
+    // Parse quote assets from ENV (default to USDT for backward compatibility)
+    const quoteAssetsConfig =
+      this.configService.get<string>('QUOTE_ASSETS') || 'USDT';
+    this.quoteAssets = quoteAssetsConfig
+      .split(',')
+      .map((q) => q.trim())
+      .filter((q) => q.length > 0);
+
+    this.logger.log(`Quote assets configured: ${this.quoteAssets.join(', ')}`);
+
+    // Directory to cache icons
+    this.iconsDir = join(process.cwd(), 'public', 'icons');
+    this.ensureIconsDirectory();
+  }
+
+  private async ensureIconsDirectory(): Promise<void> {
+    try {
+      await fs.mkdir(this.iconsDir, { recursive: true });
+    } catch (error) {
+      this.logger.error(`Failed to create icons directory: ${error.message}`);
+    }
+  }
+
+  /**
+   * Extract base asset from symbol by removing quote asset suffix
+   * e.g., BTCUSDT -> BTC, ETHBTC -> ETH
+   */
+  private getBaseAsset(symbol: string): string {
+    for (const quote of this.quoteAssets) {
+      if (symbol.endsWith(quote)) {
+        return symbol.slice(0, -quote.length);
+      }
+    }
+    // Fallback: return symbol as-is if no quote matched
+    return symbol;
   }
 
   async getSymbols(): Promise<string[]> {
@@ -33,7 +73,11 @@ export class BinanceService {
       );
 
       return response.symbols
-        .filter((s: any) => s.status === 'TRADING' && s.symbol.endsWith('USDT'))
+        .filter(
+          (s: any) =>
+            s.status === 'TRADING' &&
+            this.quoteAssets.some((q) => s.symbol.endsWith(q)),
+        )
         .map((s: any) => s.symbol)
         .sort();
     } catch (error) {
@@ -58,7 +102,7 @@ export class BinanceService {
       );
 
       return response
-        .filter((t: any) => t.symbol.endsWith('USDT'))
+        .filter((t: any) => this.quoteAssets.some((q) => t.symbol.endsWith(q)))
         .map((t: any) => ({
           symbol: t.symbol,
           priceChangePercent: t.priceChangePercent,
@@ -66,7 +110,7 @@ export class BinanceService {
           highPrice: t.highPrice,
           lowPrice: t.lowPrice,
           quoteVolume: t.quoteVolume,
-          baseAsset: t.symbol.replace('USDT', ''),
+          baseAsset: this.getBaseAsset(t.symbol),
         }));
     } catch (error) {
       this.logger.error(`getAllTickers error: ${error.message}`);
@@ -146,39 +190,58 @@ export class BinanceService {
   }
 
   getIconUrl(symbol: string): string {
-    const asset = symbol.replace('USDT', '').toUpperCase();
+    const asset = this.getBaseAsset(symbol).toUpperCase();
     return `https://bin.bnbstatic.com/static/assets/logos/${asset}.png`;
   }
 
   async fetchIcon(
     symbol: string,
   ): Promise<{ buffer: Buffer; contentType: string }> {
-    const asset = symbol.replace('USDT', '').toUpperCase();
-    const binanceUrl = `https://bin.bnbstatic.com/static/assets/logos/${asset}.png`;
+    const asset = this.getBaseAsset(symbol).toUpperCase();
+    const fileName = `${asset}.png`;
+    const filePath = join(this.iconsDir, fileName);
 
     try {
+      // Check if icon exists in cache
+      try {
+        const cachedBuffer = await fs.readFile(filePath);
+        this.logger.debug(`Serving cached icon for ${asset}`);
+        return {
+          buffer: cachedBuffer,
+          contentType: 'image/png',
+        };
+      } catch (error) {
+        // File doesn't exist, fetch from Binance
+        this.logger.debug(`Cache miss for ${asset}, fetching from Binance`);
+      }
+
+      // Fetch from Binance CDN
+      const binanceUrl = `https://bin.bnbstatic.com/static/assets/logos/${asset}.png`;
       const response = await firstValueFrom(
         this.httpService
           .get(binanceUrl, {
-            responseType: 'arraybuffer', // CỰC KỲ QUAN TRỌNG: Để nhận dữ liệu nhị phân (ảnh)
+            responseType: 'arraybuffer',
           })
           .pipe(
             catchError((err) => {
               this.logger.error(
                 `Error fetching icon for ${symbol}: ${err.message}`,
               );
-              // Nếu không tìm thấy ảnh, có thể throw lỗi hoặc trả về ảnh mặc định
               throw new HttpException('Icon not found', HttpStatus.NOT_FOUND);
             }),
           ),
       );
 
-      return {
-        buffer: Buffer.from(response.data),
-        contentType: response.headers['content-type'] || 'image/png',
-      };
+      const buffer = Buffer.from(response.data);
+      const contentType = response.headers['content-type'] || 'image/png';
+
+      // Save to cache (fire and forget)
+      fs.writeFile(filePath, buffer).catch((err) =>
+        this.logger.error(`Failed to cache icon for ${asset}: ${err.message}`),
+      );
+
+      return { buffer, contentType };
     } catch (error) {
-      // Xử lý fallback: Nếu lỗi thì trả về ảnh default hoặc throw tiếp
       this.logger.error(`fetchIcon error: ${error.message}`);
       throw error;
     }
