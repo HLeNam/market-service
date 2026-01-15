@@ -60,15 +60,15 @@ export class BinanceWebsocketService implements OnModuleDestroy {
 
   onModuleDestroy() {
     this.logger.log('Shutting down all WebSocket connections...');
-    
+
     // Cleanup all connections
     this.connections.forEach((state, key) => {
       this.cleanupConnection(key, state);
     });
-    
+
     this.connections.clear();
     this.subscriptions.clear();
-    
+
     this.logger.log('All WebSocket connections closed');
   }
 
@@ -81,7 +81,7 @@ export class BinanceWebsocketService implements OnModuleDestroy {
       clearTimeout(state.reconnectTimer);
       state.reconnectTimer = undefined;
     }
-    
+
     if (state.pingInterval) {
       clearInterval(state.pingInterval);
       state.pingInterval = undefined;
@@ -147,7 +147,9 @@ export class BinanceWebsocketService implements OnModuleDestroy {
             this.cleanupConnection(key, state);
             this.connections.delete(key);
             this.subscriptions.delete(key);
-            this.logger.log(`Closed WebSocket for ${key} (no more subscribers)`);
+            this.logger.log(
+              `Closed WebSocket for ${key} (no more subscribers)`,
+            );
           }
         }
       }
@@ -187,7 +189,7 @@ export class BinanceWebsocketService implements OnModuleDestroy {
       this.logger.log(`✅ WebSocket connected for ${key}`);
       state.retryCount = 0; // Reset on successful connection
       state.isReconnecting = false;
-      
+
       // Start ping/pong heartbeat
       this.startHeartbeat(key, state);
     });
@@ -243,7 +245,9 @@ export class BinanceWebsocketService implements OnModuleDestroy {
           }
         });
       } catch (err) {
-        this.logger.error(`WebSocket message parse error for ${key}: ${err.message}`);
+        this.logger.error(
+          `WebSocket message parse error for ${key}: ${err.message}`,
+        );
       }
     });
 
@@ -253,14 +257,16 @@ export class BinanceWebsocketService implements OnModuleDestroy {
 
     ws.on('error', (error) => {
       this.logger.error(`❌ WebSocket error for ${key}: ${error.message}`);
-      
+
       // Cleanup and attempt reconnection
       this.handleConnectionFailure(symbol, interval, key, state);
     });
 
     ws.on('close', (code, reason) => {
-      this.logger.warn(`WebSocket closed for ${key} - Code: ${code}, Reason: ${reason || 'Unknown'}`);
-      
+      this.logger.warn(
+        `WebSocket closed for ${key} - Code: ${code}, Reason: ${reason || 'Unknown'}`,
+      );
+
       // Cleanup timers
       if (state.pingInterval) {
         clearInterval(state.pingInterval);
@@ -269,12 +275,18 @@ export class BinanceWebsocketService implements OnModuleDestroy {
 
       // Attempt reconnection if there are still subscribers
       const callbacks = this.subscriptions.get(key);
-      if (callbacks && callbacks.size > 0 && state.retryCount < this.MAX_RETRY_ATTEMPTS) {
+      if (
+        callbacks &&
+        callbacks.size > 0 &&
+        state.retryCount < this.MAX_RETRY_ATTEMPTS
+      ) {
         this.scheduleReconnection(symbol, interval, key, state);
       } else {
         this.connections.delete(key);
         if (state.retryCount >= this.MAX_RETRY_ATTEMPTS) {
-          this.logger.error(`❌ Max retry attempts reached for ${key}, giving up`);
+          this.logger.error(
+            `❌ Max retry attempts reached for ${key}, giving up`,
+          );
           this.subscriptions.delete(key); // Remove dead subscriptions
         }
       }
@@ -297,14 +309,21 @@ export class BinanceWebsocketService implements OnModuleDestroy {
     }
 
     // Close connection if still open
-    if (state.ws.readyState === WebSocket.OPEN || state.ws.readyState === WebSocket.CONNECTING) {
+    if (
+      state.ws.readyState === WebSocket.OPEN ||
+      state.ws.readyState === WebSocket.CONNECTING
+    ) {
       state.ws.removeAllListeners();
       state.ws.terminate(); // Force close
     }
 
     // Check if we should reconnect
     const callbacks = this.subscriptions.get(key);
-    if (callbacks && callbacks.size > 0 && state.retryCount < this.MAX_RETRY_ATTEMPTS) {
+    if (
+      callbacks &&
+      callbacks.size > 0 &&
+      state.retryCount < this.MAX_RETRY_ATTEMPTS
+    ) {
       this.scheduleReconnection(symbol, interval, key, state);
     } else {
       this.connections.delete(key);
@@ -339,13 +358,15 @@ export class BinanceWebsocketService implements OnModuleDestroy {
 
     state.reconnectTimer = setTimeout(() => {
       state.reconnectTimer = undefined;
-      
+
       // Check if still have subscribers before reconnecting
       const callbacks = this.subscriptions.get(key);
       if (callbacks && callbacks.size > 0) {
         this.createConnection(symbol, interval, key);
       } else {
-        this.logger.log(`No subscribers left for ${key}, skipping reconnection`);
+        this.logger.log(
+          `No subscribers left for ${key}, skipping reconnection`,
+        );
         this.connections.delete(key);
       }
     }, delay);
@@ -364,9 +385,11 @@ export class BinanceWebsocketService implements OnModuleDestroy {
       if (state.ws.readyState === WebSocket.OPEN) {
         // Check if last pong was too long ago
         const timeSinceLastPong = Date.now() - state.lastPongTime;
-        
+
         if (timeSinceLastPong > this.PING_INTERVAL + this.PONG_TIMEOUT) {
-          this.logger.warn(`⚠️ No pong received for ${key}, connection might be dead`);
+          this.logger.warn(
+            `⚠️ No pong received for ${key}, connection might be dead`,
+          );
           state.ws.terminate(); // This will trigger 'close' event
           return;
         }
@@ -381,13 +404,28 @@ export class BinanceWebsocketService implements OnModuleDestroy {
     const key = 'all-tickers';
 
     if (this.connections.has(key)) {
-      return; // Already connected
+      this.logger.warn('Already connected to all tickers stream');
+      return;
     }
 
     const ws = new WebSocket(`${this.wsBase}/ws/!ticker@arr`);
 
+    const state: ConnectionState = {
+      ws,
+      retryCount: 0,
+      isReconnecting: false,
+      lastPongTime: Date.now(),
+    };
+
+    this.connections.set(key, state);
+
     ws.on('open', () => {
-      this.logger.log('Connected to all tickers stream');
+      this.logger.log('✅ Connected to all tickers stream');
+      state.retryCount = 0;
+      state.isReconnecting = false;
+
+      // Start heartbeat
+      this.startHeartbeat(key, state);
     });
 
     ws.on('message', (data: WebSocket.Data) => {
@@ -411,16 +449,134 @@ export class BinanceWebsocketService implements OnModuleDestroy {
       }
     });
 
+    ws.on('pong', () => {
+      state.lastPongTime = Date.now();
+    });
+
     ws.on('error', (error) => {
-      this.logger.error(`All tickers WebSocket error: ${error.message}`);
+      this.logger.error(`❌ All tickers WebSocket error: ${error.message}`);
+
+      // Cleanup and reconnect
+      if (state.pingInterval) {
+        clearInterval(state.pingInterval);
+        state.pingInterval = undefined;
+      }
+
+      if (
+        state.ws.readyState === WebSocket.OPEN ||
+        state.ws.readyState === WebSocket.CONNECTING
+      ) {
+        state.ws.removeAllListeners();
+        state.ws.terminate();
+      }
+
+      // Reconnect
+      if (state.retryCount < this.MAX_RETRY_ATTEMPTS) {
+        this.scheduleAllTickersReconnection(callback, state);
+      } else {
+        this.logger.error(
+          '❌ Max retry attempts reached for all tickers, giving up',
+        );
+        this.connections.delete(key);
+      }
     });
 
-    ws.on('close', () => {
-      this.logger.log('All tickers WebSocket closed');
-      this.connections.delete(key);
+    ws.on('close', (code, reason) => {
+      this.logger.warn(
+        `All tickers WebSocket closed - Code: ${code}, Reason: ${reason || 'Unknown'}`,
+      );
+
+      if (state.pingInterval) {
+        clearInterval(state.pingInterval);
+        state.pingInterval = undefined;
+      }
+
+      // Reconnect
+      if (state.retryCount < this.MAX_RETRY_ATTEMPTS) {
+        this.scheduleAllTickersReconnection(callback, state);
+      } else {
+        this.connections.delete(key);
+      }
+    });
+  }
+
+  /**
+   * Schedule reconnection for all tickers stream
+   */
+  private scheduleAllTickersReconnection(
+    callback: (tickers: any[]) => void,
+    state: ConnectionState,
+  ): void {
+    if (state.isReconnecting) {
+      return;
+    }
+
+    state.isReconnecting = true;
+    state.retryCount++;
+
+    const delay = Math.min(
+      this.INITIAL_RETRY_DELAY * Math.pow(2, state.retryCount - 1),
+      this.MAX_RETRY_DELAY,
+    );
+
+    this.logger.log(
+      `🔄 Reconnecting all tickers stream (attempt ${state.retryCount}/${this.MAX_RETRY_ATTEMPTS}) in ${delay}ms`,
+    );
+
+    state.reconnectTimer = setTimeout(() => {
+      state.reconnectTimer = undefined;
+      this.connections.delete('all-tickers'); // Remove old state
+      this.subscribeAllTickers(callback);
+    }, delay);
+  }
+
+  /**
+   * Get connection health status
+   */
+  getConnectionHealth(): {
+    totalConnections: number;
+    healthyConnections: number;
+    unhealthyConnections: number;
+    connections: Array<{
+      key: string;
+      retryCount: number;
+      isReconnecting: boolean;
+      lastPongAge: number;
+      subscriberCount: number;
+    }>;
+  } {
+    const connections: Array<any> = [];
+    let healthyCount = 0;
+    let unhealthyCount = 0;
+
+    this.connections.forEach((state, key) => {
+      const timeSinceLastPong = Date.now() - state.lastPongTime;
+      const isHealthy =
+        state.ws.readyState === WebSocket.OPEN &&
+        !state.isReconnecting &&
+        timeSinceLastPong < this.PING_INTERVAL + this.PONG_TIMEOUT;
+
+      if (isHealthy) {
+        healthyCount++;
+      } else {
+        unhealthyCount++;
+      }
+
+      connections.push({
+        key,
+        retryCount: state.retryCount,
+        isReconnecting: state.isReconnecting,
+        lastPongAge: timeSinceLastPong,
+        subscriberCount: this.subscriptions.get(key)?.size || 0,
+      });
     });
 
-    this.connections.set(key, ws);
+    return {
+      totalConnections: this.connections.size,
+      healthyConnections: healthyCount,
+      unhealthyConnections: unhealthyCount,
+      connections,
+    };
   }
 
   private generateClientId(): string {

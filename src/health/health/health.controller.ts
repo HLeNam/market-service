@@ -8,6 +8,7 @@ import {
 } from '@nestjs/terminus';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { CacheService } from 'src/modules/cache/cache.service';
+import { BinanceWebsocketService } from 'src/modules/binance/binance-websocket.service';
 
 @ApiTags('health')
 @Controller('health')
@@ -18,6 +19,7 @@ export class HealthController {
     private db: TypeOrmHealthIndicator,
     private memory: MemoryHealthIndicator,
     private cacheService: CacheService,
+    private binanceWsService: BinanceWebsocketService,
   ) {}
 
   @Get()
@@ -76,6 +78,18 @@ export class HealthController {
   async live() {
     return {
       alive: true,
+      timestamp: new Date().toISOString(),
+    };
+  }
+
+  @Get('websocket')
+  @ApiOperation({ summary: 'Check WebSocket connections health' })
+  async websocketHealth() {
+    const health = this.binanceWsService.getConnectionHealth();
+
+    return {
+      status: health.unhealthyConnections === 0 ? 'healthy' : 'degraded',
+      ...health,
       timestamp: new Date().toISOString(),
     };
   }
