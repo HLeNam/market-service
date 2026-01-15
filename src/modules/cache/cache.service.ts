@@ -98,12 +98,15 @@ export class CacheService implements OnModuleDestroy {
       const key = `candles:${symbol}:${interval}`;
       const pipeline = this.redis.pipeline();
 
-      // Store as sorted set with timestamp as score
+      // Store each candle with timestamp as key (consistent with addSingleCandle)
       candles.forEach((candle) => {
-        pipeline.zadd(key, candle.time, JSON.stringify(candle));
+        const candleKey = `candle:${symbol}:${interval}:${candle.time}`;
+        // Use NX to only set if not exists
+        pipeline.set(candleKey, JSON.stringify(candle), 'EX', 3600, 'NX');
+        pipeline.zadd(key, candle.time, candle.time.toString());
       });
 
-      // Set expiry
+      // Set expiry for sorted set
       pipeline.expire(key, 3600); // 1 hour
 
       await pipeline.exec();
@@ -123,10 +126,23 @@ export class CacheService implements OnModuleDestroy {
     try {
       const key = `candles:${symbol}:${interval}`;
 
-      // Get latest N candles
-      const data = await this.redis.zrevrange(key, 0, limit - 1);
+      // Get latest N timestamps from sorted set
+      const timestamps = await this.redis.zrevrange(key, 0, limit - 1);
 
-      return data.map((item) => JSON.parse(item)).reverse();
+      if (timestamps.length === 0) {
+        return [];
+      }
+
+      // Fetch candle data from individual keys
+      const candleKeys = timestamps.map(
+        (ts) => `candle:${symbol}:${interval}:${ts}`,
+      );
+      const candleData = await this.redis.mget(...candleKeys);
+
+      return candleData
+        .filter((item) => item !== null)
+        .map((item) => JSON.parse(item!))
+        .reverse();
     } catch (error) {
       this.logger.error(`Error getting candle history: ${error.message}`);
       return [];
@@ -145,10 +161,16 @@ export class CacheService implements OnModuleDestroy {
   ): Promise<void> {
     try {
       const key = `candles:${symbol}:${interval}`;
+      const candleKey = `candle:${symbol}:${interval}:${candle.time}`;
+
       const pipeline = this.redis.pipeline();
 
-      // Add candle to sorted set (will update if timestamp exists)
-      pipeline.zadd(key, candle.time, JSON.stringify(candle));
+      // Always update candle data (last final wins for accuracy)
+      // This ensures volume and other values get Binance corrections
+      pipeline.set(candleKey, JSON.stringify(candle), 'EX', 3600); // 1 hour expiry
+
+      // Add timestamp to sorted set (timestamp ensures uniqueness)
+      pipeline.zadd(key, candle.time, candle.time.toString());
 
       // Keep only the latest N candles (remove old ones)
       // Keep maxCandles + 100 to avoid too frequent trimming
