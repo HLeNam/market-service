@@ -19,7 +19,7 @@ interface SubscriptionData {
 
 @WebSocketGateway({
   namespace: '/market',
-  cors: { origin: '*' },
+  cors: { origin: process.env.FRONTEND_URL || 'http://localhost:5173' },
 })
 export class MarketGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()
@@ -55,6 +55,9 @@ export class MarketGateway implements OnGatewayConnection, OnGatewayDisconnect {
       }
       this.clientSubscriptions.delete(client.id);
     }
+
+    // Cleanup all tickers subscription
+    await this.binanceWs.unsubscribeAllTickers(client.id);
   }
 
   @SubscribeMessage('subscribe')
@@ -151,7 +154,7 @@ export class MarketGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @SubscribeMessage('subscribe-all-tickers')
   async handleSubscribeAllTickers(@ConnectedSocket() client: Socket) {
     try {
-      await this.binanceWs.subscribeAllTickers((tickers) => {
+      await this.binanceWs.subscribeAllTickers(client.id, (tickers) => {
         client.emit('all-tickers-update', { data: tickers });
       });
 

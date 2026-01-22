@@ -10,8 +10,12 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { RedisIoAdapter } from 'src/adapters/redis-io.adapter';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule, {
-    cors: true,
+  const app = await NestFactory.create(AppModule);
+
+  app.enableCors({
+    origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+    methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
+    credentials: true,
   });
 
   const configService = app.get(ConfigService);
