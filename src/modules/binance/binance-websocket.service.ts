@@ -33,6 +33,7 @@ export class BinanceWebsocketService implements OnModuleDestroy {
   // Connection management
   private connections = new Map<string, ConnectionState>();
   private subscriptions = new Map<string, Map<string, SubscriptionCallback>>();
+  private allTickersSubscribers = new Map<string, (tickers: any[]) => void>(); // clientId -> callback
 
   // Configuration
   private readonly MAX_RETRY_ATTEMPTS: number;
@@ -85,6 +86,7 @@ export class BinanceWebsocketService implements OnModuleDestroy {
 
     this.connections.clear();
     this.subscriptions.clear();
+    this.allTickersSubscribers.clear();
 
     this.logger.log('All WebSocket connections closed');
   }
@@ -423,13 +425,42 @@ export class BinanceWebsocketService implements OnModuleDestroy {
     }, this.PING_INTERVAL);
   }
 
-  async subscribeAllTickers(callback: (tickers: any[]) => void): Promise<void> {
+  async subscribeAllTickers(
+    clientId: string,
+    callback: (tickers: any[]) => void,
+  ): Promise<void> {
     const key = 'all-tickers';
 
-    if (this.connections.has(key)) {
-      this.logger.warn('Already connected to all tickers stream');
+    // Add this client to all tickers subscribers
+    this.allTickersSubscribers.set(clientId, callback);
+
+    // If connection already exists and is healthy, just return
+    const existingState = this.connections.get(key);
+    if (
+      existingState &&
+      existingState.ws.readyState === WebSocket.OPEN &&
+      !existingState.isReconnecting
+    ) {
+      this.logger.log(
+        `Client ${clientId} added to existing all tickers stream`,
+      );
       return;
     }
+
+    // If already reconnecting, don't create duplicate
+    if (existingState?.isReconnecting) {
+      this.logger.log(
+        `All tickers stream is reconnecting, added client ${clientId}`,
+      );
+      return;
+    }
+
+    // Create new connection
+    await this.createAllTickersConnection();
+  }
+
+  private async createAllTickersConnection(): Promise<void> {
+    const key = 'all-tickers';
 
     const ws = new WebSocket(`${this.wsBase}/ws/!ticker@arr`);
 
@@ -466,7 +497,10 @@ export class BinanceWebsocketService implements OnModuleDestroy {
             baseAsset: this.getBaseAsset(t.s),
           }));
 
-        callback(filteredTickers);
+        // Broadcast to all subscribed clients
+        this.allTickersSubscribers.forEach((callback) => {
+          callback(filteredTickers);
+        });
       } catch (err) {
         this.logger.error(`All tickers parse error: ${err.message}`);
       }
@@ -493,13 +527,13 @@ export class BinanceWebsocketService implements OnModuleDestroy {
         state.ws.terminate();
       }
 
-      // Reconnect
-      if (state.retryCount < this.MAX_RETRY_ATTEMPTS) {
-        this.scheduleAllTickersReconnection(callback, state);
+      // Reconnect if there are still subscribers
+      if (
+        this.allTickersSubscribers.size > 0 &&
+        state.retryCount < this.MAX_RETRY_ATTEMPTS
+      ) {
+        this.scheduleAllTickersReconnection(state);
       } else {
-        this.logger.error(
-          'Max retry attempts reached for all tickers, giving up',
-        );
         this.connections.delete(key);
       }
     });
@@ -514,9 +548,12 @@ export class BinanceWebsocketService implements OnModuleDestroy {
         state.pingInterval = undefined;
       }
 
-      // Reconnect
-      if (state.retryCount < this.MAX_RETRY_ATTEMPTS) {
-        this.scheduleAllTickersReconnection(callback, state);
+      // Reconnect if there are still subscribers
+      if (
+        this.allTickersSubscribers.size > 0 &&
+        state.retryCount < this.MAX_RETRY_ATTEMPTS
+      ) {
+        this.scheduleAllTickersReconnection(state);
       } else {
         this.connections.delete(key);
       }
@@ -526,10 +563,7 @@ export class BinanceWebsocketService implements OnModuleDestroy {
   /**
    * Schedule reconnection for all tickers stream
    */
-  private scheduleAllTickersReconnection(
-    callback: (tickers: any[]) => void,
-    state: ConnectionState,
-  ): void {
+  private scheduleAllTickersReconnection(state: ConnectionState): void {
     if (state.isReconnecting) {
       return;
     }
@@ -548,9 +582,30 @@ export class BinanceWebsocketService implements OnModuleDestroy {
 
     state.reconnectTimer = setTimeout(() => {
       state.reconnectTimer = undefined;
-      this.connections.delete('all-tickers'); // Remove old state
-      this.subscribeAllTickers(callback);
+
+      // Only reconnect if there are still subscribers
+      if (this.allTickersSubscribers.size > 0) {
+        this.connections.delete('all-tickers');
+        this.createAllTickersConnection();
+      }
     }, delay);
+  }
+
+  /**
+   * Unsubscribe client from all tickers
+   */
+  async unsubscribeAllTickers(clientId: string): Promise<void> {
+    this.allTickersSubscribers.delete(clientId);
+
+    // If no more subscribers, close connection
+    if (this.allTickersSubscribers.size === 0) {
+      const state = this.connections.get('all-tickers');
+      if (state) {
+        this.cleanupConnection('all-tickers', state);
+        this.connections.delete('all-tickers');
+        this.logger.log('Closed all tickers WebSocket (no more subscribers)');
+      }
+    }
   }
 
   /**
