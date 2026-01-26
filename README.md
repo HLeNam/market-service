@@ -1,4 +1,35 @@
-# LƯU Ý CÓ DÙNG REDIS NÊN MỌI NGƯỜI CÀI REDIS NHA VÀ POSTGRES SQL
+# LƯU Ý KHI CHẠY HÃY ĐẢM BẢO CÀI ĐẶT DATABASE POSTGRES VÀ REDIS 
+
+Có thể tạo thông tin database giống như trong `.env.example`
+
+## Tạo database (Postgres)
+
+Ứng dụng cần một cơ sở dữ liệu Postgres và một user có quyền truy cập đầy đủ tới database đó. Khi tạo resource, đảm bảo:
+
+- Có một database (ví dụ `market_db`).
+- Có một user/role (ví dụ `market_user`) với mật khẩu và quyền kết nối, tạo/ sửa bảng trong database.
+- Gán quyền sở hữu hoặc quyền cần thiết cho user trên database (CONNECT, CREATE, USAGE, v.v.).
+
+Sau khi tạo, cấu hình các biến môi trường tương ứng trong `.env`:
+
+```
+DATABASE_HOST=localhost
+DATABASE_PORT=5432
+DATABASE_USERNAME=<your_db_user>
+DATABASE_PASSWORD=<your_db_password>
+DATABASE_NAME=<your_database>
+```
+
+## Cài đặt Redis (nếu cần)
+
+Ứng dụng sử dụng Redis cho cache và Bull queues. Có thể chạy Redis local hoặc dùng Docker:
+
+```bash
+# Chạy Redis nhanh bằng Docker
+docker run --name market-redis -p 6379:6379 -d redis:7
+```
+
+## Tạo file `.env` dùng `.env.example` luôn cũng được copy bỏ qua `.env`
 
 <p align="center">
   <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
