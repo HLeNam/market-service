@@ -1,3 +1,7 @@
+# DƠN GIẢN CHỈ CẦN MỞ FILE `docker-compose.prod.yml` VÀ CHẠY THEO HƯỚNG DẪN Ở ĐẦU FILE. (LƯU Ý BẮC BUỘC PHẢI CÓ FILE `.env` CÓ THỂ COPY TỪ `.env.example`). KHÔNG CẦN PHẢI TẢI CẢ SOURCE CODE CHỈ CẦN 2 FILE `docker-compose.prod.yml` VÀ `.env` Ở CÙNG THƯ MỤC LÀ ĐƯỢC. SAU KHI CHẠY XONG THÌ SERVER SẼ START VỚI PORT 3001 [http://localhost:3001/api/docs](http://localhost:3001/api/docs).
+
+
+# NẾU MUỐN CHẠY VÀ CÀI ĐẶT THỦ CÔNG TỪ SOURCE CODE
 # LƯU Ý KHI CHẠY HÃY ĐẢM BẢO CÀI ĐẶT DATABASE POSTGRES VÀ REDIS 
 
 Có thể tạo thông tin database giống như trong `.env.example`
