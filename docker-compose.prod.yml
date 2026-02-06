@@ -1,0 +1,122 @@
+# ============================================
+#
+# QUICK START:
+#   1. Tạo network chung (nếu chưa có): docker network create crypto-network
+#   2. Chạy services: docker-compose -f docker-compose.prod.yml up -d
+#
+# RESET: (NẾU CẦN TRƯỚC KHI CHẠY LẠI)
+#   3. Xóa sạch mọi thứ: docker-compose -f docker-compose.prod.yml down -v --rmi all --remove-orphans
+#   4. Xóa network chung: docker network rm crypto-network
+#
+# LƯU Ý VỀ NETWORK & PORT:
+#   - Network: Sử dụng 'crypto-network' cho Microservices. 
+#     Tạo: docker network create crypto-network | Xóa: docker network rm crypto-network
+#   - Service Discovery: Các service gọi nhau qua tên container (vd: http://market-service:3001).
+#   - Tùy chỉnh Port: Có thể đổi PORT trong .env (vd: PORT=3005, REDIS_PORT=6380 (KHÔNG ĐƯỢC ĐỔI REDIS_URL), DATABASE_PORT=5433) để tránh trùng lặp 
+#     ở máy host. Việc này KHÔNG làm ảnh hưởng đến kết nối nội bộ giữa các microservices.
+#
+# ============================================
+
+services:
+  market-service:
+    image: yorickur/market-service:latest
+    container_name: market-service
+    restart: unless-stopped
+    ports:
+      - "${PORT}:3001"
+    environment:
+      # Application
+      - NODE_ENV=${NODE_ENV}
+      - PORT=3001
+      # Database - trỏ vào market-service-postgres
+      - DATABASE_TYPE=${DATABASE_TYPE}
+      - DATABASE_HOST=market-service-postgres
+      - DATABASE_PORT=5432
+      - DATABASE_USERNAME=${DATABASE_USERNAME}
+      - DATABASE_PASSWORD=${DATABASE_PASSWORD}
+      - DATABASE_NAME=${DATABASE_NAME}
+      - DATABASE_SYNC=${DATABASE_SYNC}
+      - DATABASE_LOGGING=${DATABASE_LOGGING}
+      # Redis - trỏ vào market-service-redis
+      - REDIS_HOST=market-service-redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - REDIS_URL=redis://market-service-redis:6379
+      # External Services - Trỏ vào tên container của các microservices khác
+      - NEWS_SERVICE_URL=${NEWS_SERVICE_URL:-http://news-service:3002/api/v1}
+      - AI_SERVICE_URL=${AI_SERVICE_URL:-http://ai-service:3003/api/v1}
+      - AUTH_SERVICE_URL=${AUTH_SERVICE_URL:-http://auth-service:3004/api/v1}
+      # Binance
+      - BINANCE_API_URL=${BINANCE_API_URL}
+      - BINANCE_WS_URL=${BINANCE_WS_URL}
+      # Rate Limiting
+      - THROTTLE_TTL=${THROTTLE_TTL}
+      - THROTTLE_LIMIT=${THROTTLE_LIMIT}
+      # JWT
+      - JWT_SECRET=${JWT_SECRET}
+      - JWT_EXPIRATION=${JWT_EXPIRATION}
+      # Logging
+      - LOG_LEVEL=${LOG_LEVEL}
+      # Other
+      - QUOTE_ASSETS=${QUOTE_ASSETS}
+      - FRONTEND_URL=${FRONTEND_URL}
+    depends_on:
+      market-service-postgres:
+        condition: service_healthy
+      market-service-redis:
+        condition: service_healthy
+    networks:
+      - crypto-network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3001/api/v1/health/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  market-service-postgres:
+    image: postgres:16-alpine
+    container_name: market-service-postgres
+    restart: unless-stopped
+    ports:
+      - "${DATABASE_PORT}:5432"
+    environment:
+      - POSTGRES_USER=${DATABASE_USERNAME}
+      - POSTGRES_PASSWORD=${DATABASE_PASSWORD}
+      - POSTGRES_DB=${DATABASE_NAME}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - crypto-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DATABASE_USERNAME} -d ${DATABASE_NAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  market-service-redis:
+    image: redis:7-alpine
+    container_name: market-service-redis
+    restart: unless-stopped
+    ports:
+      - "${REDIS_PORT}:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    networks:
+      - crypto-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  crypto-network:
+    external: true
