@@ -12,6 +12,7 @@ import { CacheModule } from './modules/cache/cache.module';
 import { HealthModule } from './health/health/health.module';
 import { BinanceModule } from './modules/binance/binance.module';
 import { MarketModule } from './modules/market/market.module';
+import { IndicatorsModule } from './modules/indicators/indicators.module';
 
 @Module({
   imports: [
@@ -46,6 +47,8 @@ import { MarketModule } from './modules/market/market.module';
     BinanceModule,
 
     MarketModule,
+
+    IndicatorsModule
   ],
   controllers: [AppController],
   providers: [AppService],
